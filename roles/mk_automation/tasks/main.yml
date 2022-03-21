@@ -1,0 +1,142 @@
+---
+- name: ensure controller is online and working
+  uri:
+    url: https://localhost/api/v2/ping/
+    method: GET
+    user: admin
+    password: "{{ admin_password }}"
+    validate_certs: false
+    force_basic_auth: true
+  register: controller_online
+  until: controller_online is success
+  delay: 3
+  retries: 5
+
+- name: Create custom credential types
+  awx.awx.credential_type:
+    name: "{{ item.name }}"
+    injectors: "{{ item.injectors }}"
+    kind: "{{ item.kind | default(omit) }}"
+    inputs: "{{ item.inputs | default(omit) }}"
+    description: "{{ item.description | default(omit) }}"
+    state: present
+    validate_certs: false
+    controller_username: admin
+    controller_password: "{{ admin_password }}"
+  loop: "{{ custom_credentials }}"
+
+- name: Create organizations
+  awx.awx.organization:
+    name: "{{ item.name }}"
+    description: "{{ item.description | default('') }}"
+    state: present
+    validate_certs: false
+    controller_username: admin
+    controller_password: "{{ admin_password }}"
+    galaxy_credentials:
+      - "Ansible Galaxy"
+  loop: "{{ organizations }}"
+
+- name: Create credentials
+  awx.awx.credential:
+    name: "{{ item.name }}"
+    organization: "{{ item.organization }}"
+    state: present
+    credential_type: "{{ item.type }}"
+    validate_certs: false
+    controller_username: admin
+    controller_password: "{{ admin_password }}"
+    inputs: "{{ item.inputs | default(omit) }}"
+  loop: "{{ credentials }}"
+
+- name: Create execution environments
+  awx.awx.execution_environment:
+    name: "{{ item.name }}"
+    organization: "{{ item.organization | default(omit) }}"
+    state: present
+    image: "{{ item.image }}"
+    credential: "{{ item.credential | default(omit) }}"
+    pull: "{{ item.pull | default(omit) }}"
+    validate_certs: false
+    controller_username: admin
+    controller_password: "{{ admin_password }}"
+  loop: "{{ execution_environments }}"
+
+- name: create projects
+  awx.awx.project:
+    name: "{{ item.name }}"
+    organization: "{{ item.organization }}"
+    credential: "{{ item.credential }}"
+    scm_url: "{{ item.scm_url }}"
+    scm_type: "{{ item.scm_type | default('git') }}"
+    state: present
+    validate_certs: false
+    controller_username: admin
+    controller_password: "{{ admin_password }}"
+  loop: "{{ projects }}"
+
+- name: create inventories
+  awx.awx.inventory:
+    name: "{{ item.name }}"
+    organization: "{{ item.organization }}"
+    state: present
+    validate_certs: false
+    controller_username: admin
+    controller_password: "{{ admin_password }}"
+  loop: "{{ inventories }}"
+
+- name: create inventory sources
+  awx.awx.inventory_source:
+    name: "{{ item.name }}"
+    organization: "{{ item.organization }}"
+    inventory: "{{ item.inventory }}"
+    credential: "{{ item.credential | default(omit) }}"
+    source_vars: "{{ item.source_vars | default(omit) }}"
+    source: "{{ item.source | default(omit) }}"
+    source_project: "{{ item.source_project | default(omit) }}"
+    source_path: "{{ item.source_path | default(omit) }}"
+    state: present
+    validate_certs: false
+    controller_username: admin
+    controller_password: "{{ admin_password }}"
+  loop: "{{ inventory_sources }}"
+
+- name: create job templates
+  awx.awx.job_template:
+    name: "{{ item.name }}"
+    credential: "{{ item.credential | default(omit) }}"
+    credentials: "{{ item.credentials | default(omit) }}"
+    execution_environment: "{{ item.execution_environment | default(omit) }}"
+    limit: "{{ item.limit | default(omit) }}"
+    project: "{{ item.project }}"
+    job_type: "{{ item.job_type | default('run') }}"
+    inventory: "{{ item.inventory }}"
+    playbook: "{{ item.playbook }}"
+    state: present
+    validate_certs: false
+    controller_username: admin
+    controller_password: "{{ admin_password }}"
+  loop: "{{ templates }}"
+
+- name: create workflow job templates
+  awx.awx.workflow_job_template:
+    name: "{{ item.name }}"
+    organization: "{{ item.organization | default(omit) }}"
+    state: present
+    validate_certs: false
+    controller_username: admin
+    controller_password: "{{ admin_password }}"
+  loop: "{{ workflow_templates }}"
+
+- name: create workflow job template nodes
+  awx.awx.workflow_job_template_node:
+    identifier: "{{ item.identifier }}"
+    unified_job_template: "{{ item.unified_job_template }}"
+    workflow_job_template: "{{ item.workflow }}"
+    success_nodes: "{{ item.success_nodes | default(omit) }}"
+    failure_nodes: "{{ item.failure_nodes | default(omit) }}"
+    state: present
+    validate_certs: false
+    controller_username: admin
+    controller_password: "{{ admin_password }}"
+  loop: "{{ workflow_nodes }}"

@@ -1,0 +1,318 @@
+custom_credentials:
+  - name: servicenow
+    description: credential for use with ServiceNow integration
+    kind: cloud
+    injectors:
+      env:
+        SN_INSTANCE: '\{\{ SN_INSTANCE \}\}'
+        SN_PASSWORD: '\{\{ SN_PASSWORD \}\}'
+        SN_USERNAME: '\{\{ SN_USERNAME \}\}'
+    inputs:
+      fields:
+        - id: SN_USERNAME
+          type: string
+          label: Username
+        - id: SN_PASSWORD
+          type: string
+          label: Password
+          secret: true
+        - id: SN_INSTANCE
+          type: string
+          label: Snow Instance
+      required:
+        - SN_USERNAME
+        - SN_PASSWORD
+        - SN_INSTANCE
+
+organizations:
+  - name: "Operations Automation"
+    description: Doing the things that actually matter.
+
+  - name: "Network Automation"
+    description: Networking org
+
+  - name: "Cloud Automation"
+    description: Playing in the clouds
+
+inventories:
+  - name: "aws-inventory"
+    organization: "Cloud Automation"
+    description: aws inventory
+
+  - name: "azure-inventory"
+    organization: "Cloud Automation"
+    description: azure inventory
+
+inventory_sources:
+  - name: "aws-inventory-source"
+    organization: "Cloud Automation"
+    inventory: "aws-inventory"
+    credential: "aws credential"
+    source: "ec2"
+    source_vars:
+      filters:
+        'tag:env':
+          - "ansible-dev"
+      hostnames:
+        - 'tag:Name'
+      compose:
+        ansible_host: "public_ip_address"
+
+  - name: "azure-inventory-source"
+    organization: "Cloud Automation"
+    inventory: "azure-inventory"
+    credential: "azure credential"
+    source: scm
+    source_project: "git-inventory-project"
+    source_path: "/"
+    source_vars:
+      conditional_groups:
+        azure: true
+      default_host_filters: []
+      fail_on_template_errors: false
+      hostvar_expressions:
+        computer_name: name
+        private_ip: private_ipv4_addresses[0] if private_ipv4_addresses else None
+        provisioning_state: provisioning_state | title
+        public_ip: public_ipv4_addresses[0] if public_ipv4_addresses else None
+        public_ip_id: public_ip_id if public_ip_id is defined else None
+        public_ip_name: public_ip_name if public_ip_name is defined else None
+        tags: tags if tags else None
+        type: resource_type
+      keyed_groups:
+      - key: location
+        prefix: ''
+        separator: ''
+      - key: tags.keys() | list if tags else []
+        prefix: ''
+        separator: ''
+      - key: security_group
+        prefix: ''
+        separator: ''
+      - key: resource_group
+        prefix: ''
+        separator: ''
+      - key: os_disk.operating_system_type
+        prefix: ''
+        separator: ''
+      - key: dict(tags.keys() | map("regex_replace", "^(.*)$", "\1_") | list | zip(tags.values()
+          | list)) if tags else []
+        prefix: ''
+        separator: ''
+      plain_host_names: true
+      plugin: azure.azcollection.azure_rm
+      use_contrib_script_compatible_sanitization: true
+
+projects:
+  - name: Network Project
+    scm_url: https://gitlab.com/redhatautomation/collection_playbooks/network_playbooks.git
+    credential: "gitlab credential for net"
+    organization: "Network Automation"
+
+  - name: Dynamic Multipoint Virtual Private Network
+    scm_url: https://gitlab.com/redhatautomation/collection_playbooks/dmvpn_playbooks.git
+    credential: "gitlab credential for net"
+    organization: "Network Automation"
+
+  - name: Cloud Inventory Project
+    scm_url: https://gitlab.com/redhatautomation/inventory.git
+    credential: "gitlab credential"
+    organization: "Cloud Automation"
+
+  - name: aws-project
+    scm_url: https://gitlab.com/redhatautomation/collection_playbooks/aws_playbooks
+    credential: "gitlab credential"
+    organization: "Cloud Automation"
+
+  - name: git-inventory-project
+    scm_url: https://gitlab.com/redhatautomation/inventory
+    credential: "gitlab credential"
+    organization: "Cloud Automation"
+
+  - name: azure-project
+    scm_url: https://gitlab.com/redhatautomation/collection_playbooks/azure_playbooks
+    credential: "gitlab credential"
+    organization: "Cloud Automation"
+
+execution_environments:
+  - name: "Cloud EE"
+    organization: "Cloud Automation"
+    image: registry.gitlab.com/redhatautomation/ansible_ee
+    credential: "gitlab registry credential"
+    pull: missing
+
+templates:
+  - name: "AWS Create Infra"
+    playbook: "aws_create_infra.yaml"
+    execution_environment: "Cloud EE"
+    project: "aws-project"
+    inventory: "aws-inventory"
+    credentials:
+      - "aws credential"
+
+  - name: "AWS Configure Webserver"
+    playbook: "aws_configure_webserver.yaml"
+    project: "aws-project"
+    limit: "AWS-WebServer"
+    inventory: "aws-inventory"
+    credentials:
+      - "aws machine credential"
+
+  - name: "AWS Configure Apache"
+    playbook: "aws_configure_apache.yaml"
+    project: "aws-project"
+    limit: "AWS-WebServer"
+    inventory: "aws-inventory"
+    credentials:
+      - "aws machine credential"
+
+  - name: "AWS Teardown Infra"
+    playbook: "aws_deprovision.yaml"
+    execution_environment: "Cloud EE"
+    project: "aws-project"
+    inventory: "aws-inventory"
+    credentials:
+      - "aws credential"
+
+  - name: "AWS Slack Message"
+    playbook: "aws_slack_confirm.yaml"
+    execution_environment: "Cloud EE"
+    project: "aws-project"
+    inventory: "aws-inventory"
+    credentials:
+      - "aws credential"
+
+  - name: "Azure Create Infra"
+    playbook: "azure_create_infra.yaml"
+    execution_environment: "Cloud EE"
+    project: "azure-project"
+    inventory: "azure-inventory"
+    credentials:
+      - "azure credential"
+
+  - name: "Azure Create VM"
+    execution_environment: "Cloud EE"
+    playbook: "azure_deploy_vm.yaml"
+    project: "azure-project"
+    limit: "lab1-vm01"
+    inventory: "azure-inventory"
+    credentials:
+      - "azure machine credential"
+      - "azure credential"
+
+  - name: "Azure Configure IIS"
+    playbook: "azure_configure_iis.yaml"
+    project: "azure-project"
+    limit: "lab1-vm01"
+    inventory: "azure-inventory"
+    credentials:
+      - "azure credential"
+    extra_vars:
+      ansible_connection: winrm
+      ansible_winrm_server_cert_validation: ignore
+      ansible_winrm_transport: ntlm
+
+  - name: "Azure Slack Message"
+    execution_environment: "Cloud EE"
+    playbook: "azure_slack_confirm.yaml"
+    project: "azure-project"
+    inventory: "azure-inventory"
+    credentials:
+      - "azure credential"
+
+  - name: "Azure Teardown Infra"
+    execution_environment: "Cloud EE"
+    playbook: "azure_deprovision.yaml"
+    project: "azure-project"
+    inventory: "azure-inventory"
+    credentials:
+      - "azure credential"
+
+
+workflow_templates:
+  - name: "Multi-Cloud Workflow"
+    organization: "Cloud Automation"
+    
+workflow_nodes:
+# BEGIN AWS SECTION
+  - identifier: "AWS Teardown Infra"
+    unified_job_template: "AWS Teardown Infra"
+    workflow: "Multi-Cloud Workflow"
+
+  - identifier: "AWS Slack Message"
+    unified_job_template: "AWS Slack Message"
+    workflow: "Multi-Cloud Workflow"
+
+  - identifier: "AWS Configure Webserver"
+    unified_job_template: "AWS Configure Webserver"
+    workflow: "Multi-Cloud Workflow"
+    success_nodes:
+      - "AWS Slack Message"
+    failure_nodes:
+      - "AWS Teardown Infra"
+
+  - identifier: "AWS Configure Apache"
+    unified_job_template: "AWS Configure Apache"
+    workflow: "Multi-Cloud Workflow"
+    success_nodes:
+      - "AWS Configure Webserver"
+    failure_nodes:
+      - "AWS Teardown Infra"
+
+  - identifier: "AWS Sync Inventory"
+    unified_job_template: "aws-inventory-source"
+    workflow: "Multi-Cloud Workflow"
+    success_nodes:
+      - "AWS Configure Apache"
+    failure_nodes:
+        - "AWS Teardown Infra"
+
+  - identifier: "AWS Create Infra"
+    unified_job_template: "AWS Create Infra"
+    workflow: "Multi-Cloud Workflow"
+    success_nodes:
+      - "AWS Sync Inventory"
+    failure_nodes:
+        - "AWS Teardown Infra"
+
+# BEGIN AZURE SECTION
+  - identifier: "Azure Slack Message"
+    unified_job_template: "Azure Slack Message"
+    workflow: "Multi-Cloud Workflow"
+
+  - identifier: "Azure Teardown Infra"
+    unified_job_template: "Azure Teardown Infra"
+    workflow: "Multi-Cloud Workflow"
+
+  - identifier: "Azure Configure IIS"
+    unified_job_template: "Azure Configure IIS"
+    workflow: "Multi-Cloud Workflow"
+    success_nodes:
+      - "Azure Slack Message"
+    failure_nodes:
+      - "Azure Teardown Infra"
+
+  - identifier: "Azure Sync Inventory"
+    unified_job_template: "azure-inventory-source"
+    workflow: "Multi-Cloud Workflow"
+    success_nodes:
+      - "Azure Configure IIS"
+    failure_nodes:
+      - "Azure Teardown Infra"
+
+  - identifier: "Azure Create VM"
+    unified_job_template: "Azure Create VM"
+    workflow: "Multi-Cloud Workflow"
+    success_nodes:
+      - "Azure Sync Inventory"
+    failure_nodes:
+      - "Azure Teardown Infra"
+
+  - identifier: "Azure Create Infra"
+    unified_job_template: "Azure Create Infra"
+    workflow: "Multi-Cloud Workflow"
+    success_nodes:
+      - "Azure Create VM"
+    failure_nodes:
+      - "Azure Teardown Infra"
+
